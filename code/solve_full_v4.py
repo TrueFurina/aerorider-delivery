@@ -25,6 +25,7 @@ RIDER_VAR = 0.2
 UAV_FIXED = 10.0
 UAV_VAR = 0.3
 SERVICE_MIN = 3.0
+HANDOFF_MIN = 2.0       # 交接点服务时间 σ（与论文表6-1一致）
 MAX_ORDERS_PER_RIDER = 10
 UAV_FLEET = 20          # 无人机机队规模（对齐 0917：20 架共享）
 UAV_MAX_LOAD = 5.0      # 无人机最大载重 kg（合并多单上限）
@@ -105,7 +106,7 @@ for o in sel:
             if po == pd: continue
             rp = road_km(pr, po); rd = road_km(pd, dr); pp = line_km(po, pd)
             if rp < 0 or rd < 0: continue
-            tB_raw = (rp+rd)/RIDER_KPM + pp/UAV_KPM + 2*SERVICE_MIN + 3.0
+            tB_raw = (rp+rd)/RIDER_KPM + pp/UAV_KPM + 2*SERVICE_MIN + 2*HANDOFF_MIN
             if tB_raw < best_tB:
                 best_tB = tB_raw; best_po = po; best_pd = pd
     # 直送
