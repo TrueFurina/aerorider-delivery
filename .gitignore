@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 大文件：OD 路网矩阵（约3.5GB，超出 GitHub 限制，Release 单独提供）
+data/OD道路距离_米.npy
+*.graphml
+
+# 运行产物（日志与中间文本；结果 CSV 保留入库）
+*.log
+*.txt
+!requirements.txt
+!README.md
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 内部文档与个人目录（不入库）
+.workbuddy/
+05_论文章节_*/
+*.xlsx
