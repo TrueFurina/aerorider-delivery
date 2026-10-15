@@ -51,19 +51,20 @@ PENALTY = float(sys.argv[4]) if len(sys.argv) > 4 else 2.0
 SIM = (len(sys.argv) > 6 and sys.argv[6] == "sim")
 SEED = int(sys.argv[7]) if len(sys.argv) > 7 else 7
 FIX_W = float(sys.argv[8]) if len(sys.argv) > 8 else 0.0   # ALNS 目标中骑手固定成本等效里程权重（0=纯准时+里程）
+ABL = sys.argv[9] if len(sys.argv) > 9 else 'both'          # 消融变体: both | no_alns | no_ten | none(两者都关=构造式基线)
 random.seed(SEED)
 if SIM:
     sel = orders[:N]
 else:
     sel = [o for o in orders if o["pickup_name"] in pname2row and o["delivery_id"] in dsid2row][:N]
 
-PAD_CSV = ROOT + r"\data\params\fz_handoff_nodes_master.csv"
+PAD_CSV = ROOT + r"\data\params\fz_handoff_nodes_master_fixed.csv"
 pad_plane = {}
 for r in csv.DictReader(open(PAD_CSV, encoding="utf-8-sig")):
     pad_plane[r["node_id"]] = (float(r["plane_x_km"]), float(r["plane_y_km"]))
 
 def plane(lon, lat):
-    return ((float(lon)-119.30)*95.0, (float(lat)-26.08)*111.0)
+    return ((float(lon)-119.30)*100.0, (float(lat)-26.08)*110.94)
 
 row2xy = {}
 if not SIM:
@@ -233,6 +234,9 @@ def alns_assign(items, start_row, end_row, t0, capacity, row_attr, mode,
     """ALNS 骑手分配。返回路线列表 [[item,...], ...] 与总里程。
     目标 = alpha*总超窗 + 总里程 + fix_w*路线数（fix_w 为骑手固定成本等效里程）。"""
     if not items: return [], 0.0
+    if ABL in ('no_alns', 'none'):
+        r = cw_initial(items, start_row, end_row, t0, capacity, row_attr, mode)
+        return (r or []), 0.0
     rnd = random.Random(seed)
     routes = cw_initial(items, start_row, end_row, t0, capacity, row_attr, mode)
     if not routes: routes = []
@@ -352,63 +356,84 @@ def ten_schedule(merge_input, uav_fleet=UAV_FLEET):
     求解后起飞时刻按段内最晚交接时刻确定，机队按最早可用时刻贪心排队（对给定航班序列最优）。
     返回 {oid: (takeoff, arrive)}, uav_seq 列表 [(oids, takeoff, fl, dist, po_name, pd_name)]
     """
-    try:
-        from ortools.sat.python import cp_model
-    except Exception:
-        raise RuntimeError("OR-Tools 未安装: pip install ortools")
-    model = cp_model.CpModel()
-    pairs = {}
-    for (po, pd), lst in merge_input.items():
-        pairs[(po, pd)] = sorted(lst, key=lambda v: v[1])
     fl_of = {}
     dist_of = {}
-    for (po, pd) in pairs:
+    for (po, pd), lst in merge_input.items():
         po_name = PADS[PAD_IDS.index(po)][0]; pd_name = PADS[PAD_IDS.index(pd)][0]
         x1, y1 = pad_plane[po_name]; x2, y2 = pad_plane[pd_name]
         dist_of[(po, pd)] = math.hypot(x1 - x2, y1 - y2)
         fl_of[(po, pd)] = dist_of[(po, pd)] / UAV_KPM
-    # 连续切分建模：cut[o]=1 表示该订单为其航班起点（保持交接时刻顺序的分组）
-    cut = {}
-    g = {}
-    for (po, pd), lst in pairs.items():
-        n = len(lst)
-        for k in range(n):
-            cut[(po, pd, k)] = model.NewBoolVar(f"cut_{po}_{pd}_{k}")
-        model.Add(cut[(po, pd, 0)] == 1)
-        for k in range(n):
-            gk = model.NewIntVar(0, n, f"g_{po}_{pd}_{k}")
-            g[(po, pd, k)] = gk
-            model.Add(gk == sum(cut[(po, pd, j)] for j in range(k + 1)) - 1)
-        # 超载区间禁止同航班：任意连续区间重量和 > 5 kg 时首尾订单必须分属不同航班
-        for i in range(n):
-            for j in range(i + 1, n):
-                if sum(lst[k][2] for k in range(i, j + 1)) > UAV_MAX_LOAD:
-                    model.Add(g[(po, pd, i)] != g[(po, pd, j)])
-    n_flight = model.NewIntVar(0, 10 ** 6, "n_flight")
-    model.Add(n_flight == sum(cut.values()))
-    model.Minimize(5000 * n_flight)
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 15.0
-    solver.parameters.num_search_workers = 4
-    status = solver.Solve(model)
-    groups = defaultdict(list)
-    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        for (po, pd), lst in pairs.items():
-            for k, (oid, t, w, due) in enumerate(lst):
-                fg = solver.Value(g[(po, pd, k)])
-                groups[(po, pd, fg)].append((oid, t, w))
-    else:
-        # 求解失败回退：与 v4 一致的同航程贪心合并
-        for (po, pd), lst in pairs.items():
+    if ABL in ('no_ten', 'none'):
+        # 消融变体：不调用 CP-SAT，直接采用与 v4 一致的同航程贪心合并
+        groups = defaultdict(list)
+        for (po, pd), lst in merge_input.items():
             lst_s = sorted(lst, key=lambda v: v[1])
             grp = []
-            for oid, t, w in lst_s:
+            for oid, t, w, _due in lst_s:
                 if grp and t - grp[-1][1] <= MERGE_WIN and grp[-1][2] + w <= UAV_MAX_LOAD:
                     g0 = grp[-1]; g0[0].append(oid); g0[1] = t; g0[2] += w
                 else:
                     grp.append([[oid], t, w])
             for k, (oids, t, w) in enumerate(grp):
                 groups[(po, pd, k)] = [(oid, t, w) for oid in oids]
+    else:
+        try:
+            from ortools.sat.python import cp_model
+        except Exception:
+            raise RuntimeError("OR-Tools 未安装: pip install ortools")
+        model = cp_model.CpModel()
+        pairs = {}
+        for (po, pd), lst in merge_input.items():
+            pairs[(po, pd)] = sorted(lst, key=lambda v: v[1])
+        fl_of = {}
+        dist_of = {}
+        for (po, pd) in pairs:
+            po_name = PADS[PAD_IDS.index(po)][0]; pd_name = PADS[PAD_IDS.index(pd)][0]
+            x1, y1 = pad_plane[po_name]; x2, y2 = pad_plane[pd_name]
+            dist_of[(po, pd)] = math.hypot(x1 - x2, y1 - y2)
+            fl_of[(po, pd)] = dist_of[(po, pd)] / UAV_KPM
+        # 连续切分建模：cut[o]=1 表示该订单为其航班起点（保持交接时刻顺序的分组）
+        cut = {}
+        g = {}
+        for (po, pd), lst in pairs.items():
+            n = len(lst)
+            for k in range(n):
+                cut[(po, pd, k)] = model.NewBoolVar(f"cut_{po}_{pd}_{k}")
+            model.Add(cut[(po, pd, 0)] == 1)
+            for k in range(n):
+                gk = model.NewIntVar(0, n, f"g_{po}_{pd}_{k}")
+                g[(po, pd, k)] = gk
+                model.Add(gk == sum(cut[(po, pd, j)] for j in range(k + 1)) - 1)
+            # 超载区间禁止同航班：任意连续区间重量和 > 5 kg 时首尾订单必须分属不同航班
+            for i in range(n):
+                for j in range(i + 1, n):
+                    if sum(lst[k][2] for k in range(i, j + 1)) > UAV_MAX_LOAD:
+                        model.Add(g[(po, pd, i)] != g[(po, pd, j)])
+        n_flight = model.NewIntVar(0, 10 ** 6, "n_flight")
+        model.Add(n_flight == sum(cut.values()))
+        model.Minimize(5000 * n_flight)
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = 15.0
+        solver.parameters.num_search_workers = 4
+        status = solver.Solve(model)
+        groups = defaultdict(list)
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            for (po, pd), lst in pairs.items():
+                for k, (oid, t, w, due) in enumerate(lst):
+                    fg = solver.Value(g[(po, pd, k)])
+                    groups[(po, pd, fg)].append((oid, t, w))
+        else:
+            # 求解失败回退：与 v4 一致的同航程贪心合并
+            for (po, pd), lst in pairs.items():
+                lst_s = sorted(lst, key=lambda v: v[1])
+                grp = []
+                for oid, t, w in lst_s:
+                    if grp and t - grp[-1][1] <= MERGE_WIN and grp[-1][2] + w <= UAV_MAX_LOAD:
+                        g0 = grp[-1]; g0[0].append(oid); g0[1] = t; g0[2] += w
+                    else:
+                        grp.append([[oid], t, w])
+                for k, (oids, t, w) in enumerate(grp):
+                    groups[(po, pd, k)] = [(oid, t, w) for oid in oids]
     uav_records = {}
     uav_seq = []
     sched = []
@@ -555,7 +580,7 @@ for p_idx, batch in enumerate(batches):
     period_cpu.append((p_idx + 1, time.time() - t_period_start))
 
 # === 汇总（与 v4 逐字一致）===
-TAG = "纯骑手" if PURE else "CD-C2"
+TAG = ("纯骑手" if PURE else "CD-C2") + ("" if ABL == "both" else "_" + ABL)
 total = len(processed)
 ontime = sum(1 for t, ok in delivered_min.values() if ok)
 late = sum(1 for t, ok in delivered_min.values() if not ok)

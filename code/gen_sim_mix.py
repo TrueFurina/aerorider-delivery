@@ -16,7 +16,7 @@ PK = (119.30908, 26.066761)   # TP-018 东北
 PD = (119.12453, 26.132628)   # TP-007 西郊
 
 def plane(lon, lat):
-    return ((float(lon)-CX)*95.0, (float(lat)-CY)*111.0)
+    return ((float(lon)-CX)*100.0, (float(lat)-CY)*110.94)
 
 def rand_in_circle(cx, cy, r_deg):
     a = random.uniform(0, 2*math.pi)

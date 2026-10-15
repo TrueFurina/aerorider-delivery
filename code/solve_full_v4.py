@@ -63,7 +63,7 @@ for r in csv.DictReader(open(PAD_CSV, encoding="utf-8-sig")):
     pad_plane[r["node_id"]] = (float(r["plane_x_km"]), float(r["plane_y_km"]))
 
 def plane(lon, lat):
-    return ((float(lon)-119.30)*95.0, (float(lat)-26.08)*111.0)
+    return ((float(lon)-119.30)*100.0, (float(lat)-26.08)*110.94)
 
 row2xy = {}
 if not SIM:
