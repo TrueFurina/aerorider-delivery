@@ -1,20 +1,15 @@
 # -*- coding: utf-8 -*-
-"""C-D-C 完整版求解器 v5：论文第5章设计的 TEN（时空流网络）+ ALNS（自适应大邻域搜索）落地版。
-与 v4 唯一差异：
-  - 无人机干线合并：TEN（OR-Tools CP-SAT 时间展开网络模型）替代同航程贪心合并
-  - 骑手分配：ALNS（3 destroy + 2 repair + 自适应权重 + 模拟退火）替代 CW 节约
-其余（逐单决策 t_A/t_B、滚动时域、指标口径、输出格式）与 v4 完全一致。
-产出与 v4 同名 CSV（可对比），TAG 前缀 CD-C2 区分。
-用法: python solve_full_v5.py [N] [cdc|pure] [TW] [PEN] [ORD] [sim] [seed]
+"""C-D-C 完整版求解器 v5（2026-10-15 重新采集订单集）：滚动时域 + TEN/ALNS 协同求解。
+用法: python solve_full_v5.py [N] [cdc|pure] [TW] [PEN] [ORD] [sim] [seed] [FIX_W] [abl]
 """
 import numpy as np, csv, math, sys, os, time, random
 from collections import defaultdict
 
-ROOT = r"E:\Program\MultiAgent-Delivery"
-NP = ROOT + r"\data\OD道路距离_米.npy"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # release_delivery 根目录
+NP = ROOT + r"\data\matrices\OD道路距离_米.npy"
 IDX = ROOT + r"\data\节点索引.csv"
-ORD = sys.argv[5] if len(sys.argv) > 5 and os.path.isabs(sys.argv[5]) else (ROOT + (sys.argv[5] if len(sys.argv) > 5 else r"\data\orders_expanded\fz_orders_1550.csv"))
-OUTD = ROOT + r"\03_实验设计\实验结果"
+ORD = sys.argv[5] if len(sys.argv) > 5 and os.path.isabs(sys.argv[5]) else (ROOT + (sys.argv[5] if len(sys.argv) > 5 else r"\data\orders_expanded\fz_orders_recollect_600.csv"))
+OUTD = ROOT + r"\results"
 DETOUR = 1.35
 
 RIDER_KMH = 25.0

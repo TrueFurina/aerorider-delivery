@@ -41,39 +41,37 @@
 ```bash
 pip install -r requirements.txt
 
-# ① 生成混合场景订单（600 单，跨区比例 0.6；已随仓库提供，可跳过）
-python code/gen_sim_mix.py 0.6 600
+# ① 重新采集订单已随仓库提供（data/orders_expanded/fz_orders_recollect_600.csv，600 单，可直接使用）
 
-# ② 混合系统（无人机协同）主实验
-python code/solve_full_v4.py 600 "" 1.0 2.0 data/orders_expanded/fz_orders_sim_mix_600.csv sim
+# ② 混合系统（无人机协同）主实验（v5，含消融开关第 9 参数：no_alns / no_ten / none）
+python code/solve_full_v5.py 600 cdc 1.0 2.0 data/orders_expanded/fz_orders_recollect_600.csv sim 7 50
 
 # ③ 纯骑手系统（对照）主实验
-python code/solve_full_v4.py 600 pure 1.0 2.0 data/orders_expanded/fz_orders_sim_mix_600.csv sim
+python code/solve_full_v5.py 600 pure 1.0 2.0 data/orders_expanded/fz_orders_recollect_600.csv sim 7 50
 ```
 
-命令行参数：`N`（订单数，默认120）、模式（`pure`=纯骑手，缺省=混合）、`TW_SCALE`（时间窗缩放，默认1.0）、`PENALTY`（延误惩罚 元/min，默认2.0）、订单CSV路径、`sim`（仿真模式）。
+命令行参数：`N`（订单数）、模式（`pure`=纯骑手，缺省=混合）、`TW_SCALE`（时间窗缩放，默认1.0）、`PENALTY`（延误惩罚 元/min，默认2.0）、订单CSV路径、`sim`（仿真模式）、`seed`（默认7）、`FIX_W`（默认50）、第9参数（消融开关，默认空=完整版）。
 
-输出写入 `results/`，命名 `CD-C_full_{N}单.csv`（混合）与 `纯骑手_full_{N}单.csv`（纯骑手），另含 `routes`（骑手路线明细）、`uav`（无人机架次）、`handoff`（交接明细）、`decision`（逐单模式决策）四类文件。
+输出写入 `results/`，命名 `CD-C2_v5_full_{N}单.csv`（混合）与 `纯骑手_v5_full_{N}单.csv`（纯骑手），另含 `routes`（骑手路线明细）、`uav`（无人机架次）、`decision`（逐单模式决策）等文件。
 
-> **版本对应关系**：`results/` 中 `*_v4_*` 为 2026-10 上旬运行（等距圆柱投影系数修正前），`*_v5_*` 为 2026-10-15 落水吸附统一修复后的重跑版（final），**论文表 6-4~6-8 引用 v5**。v5 与 v4 使用同一求解器算法（TEN+ALNS），差异仅在于：① 投影口径统一为 `(lon-119.30)×100.0, (lat-26.08)×110.94`；② 订单数据 `fz_orders_sim_mix_600_final.csv` 已将 117 个落水点吸附至岸线并稳定化（落水 0/1200、km 600/600 全量验证 PASS）；复现 v5 请使用 `code/solve_full_v5.py`（含消融开关 `no_alns` / `no_ten` / `none`，第 9 个参数）与 `data/orders_expanded/fz_orders_sim_mix_600_final.csv`，停机坪数据源 `data/params/fz_handoff_nodes_master_fixed.csv`（9 坪全陆地），v4 命令仅复现历史版本。
+> **版本对应关系**：`results/` 中 `*_v4_*` 为 2026-10 上旬运行（投影系数修正前历史版本，保留供追溯），`*_v5_*` 为 **2026-10-15 重新采集版**（老师指令"重新采集6小时内的600个订单"后的重算结果），**论文表 6-4~6-8 引用 v5**。v5 特点：① 订单数据 `fz_orders_recollect_600.csv` 坐标全部取自福州市真实 POI 母本（`fz_orders_1550.csv`），限定取送点与任一交接点直线距离 ≤4 km 以保障三段式协同可达；② 下单时刻 660~1019 min（11:00~16:59）按 24 个 15 min 桶均匀分布（每桶 25 单）；③ 全量落水验证 0/1200、5×5 邻域 robust 0；④ 订单已脱敏（REC 前缀）。复现 v5 请使用 `code/solve_full_v5.py` 与 `data/orders_expanded/fz_orders_recollect_600.csv`，停机坪数据源 `data/params/fz_handoff_nodes_master_fixed.csv`（9 坪全陆地）。
 
 ## 4. OD 距离矩阵说明
 
-`solve_full_v4.py` 默认读取 `data/OD道路距离_米.npy`（约 3.5 GB，浮点二维矩阵，行列与 `data/节点索引.csv` 一一对应），距离由福州市真实路网（OpenStreetMap，约 16.9 万节点/30.7 万边）Dijkstra 预计算，坐标系 GCJ-02。
+`solve_full_v5.py` 默认读取 `data/matrices/OD道路距离_米.npy`（约 3.5 GB，浮点二维矩阵，行列与 `data/节点索引.csv` 一一对应），距离由福州市真实路网（OpenStreetMap，约 16.9 万节点/30.7 万边）Dijkstra 预计算，坐标系 GCJ-02。
 
-- 该矩阵体积超过 GitHub 单文件限制，**不随仓库分发**；
-- 若缺少该文件，求解器自动回退为「直线距离×1.35」口径（`SIM` 模式，与合成订单一致），论文 §6 两种口径的差异已在正文与数据质量报告中声明；
-- 需要完整路网矩阵的读者可运行 `build_road_matrices.py`（输入真实路网 graphml 后重建订单↔停机坪矩阵），或向作者索取（Release 附件）。
+- 该矩阵体积超过 GitHub 单文件限制，**不随仓库分发**（`data/matrices/OD道路距离_米.npy` 需自行放入，或使用 `build_road_matrices.py` 重建，或向作者索取 Release 附件）；
+- 论文 §6 各表数字即基于该路网矩阵口径复现；若以「直线距离×1.35」回退口径运行，数值将与论文不同。
 
 ## 5. 实验与结果
 
-论文实验在 120/240/360/480/600 五个订单规模上运行，每个规模分别执行混合与纯骑手两种系统，`results/` 已随仓库提供全部 CSV（含消融实验 no_alns / no_ten / 构造式基线）。汇总口径（600 单，v5 落水吸附统一修复 final 版；旧含落水口径 86.7%/54.23/22823.67/63.5%/61.23/27453.23 已作废）：
+论文实验在 120/240/360/480/600 五个订单规模上运行，每个规模分别执行混合与纯骑手两种系统，`results/` 已随仓库提供全部 CSV（含消融实验 no_alns / no_ten / 构造式基线）。汇总口径（600 单，v5 重新采集版，SEED=7）：
 
 | 指标 | 混合系统（CD-C） | 纯骑手系统 |
 |---|---|---|
-| 时间窗满足率 | 85.2%（600单） | 64.2%（600单） |
-| 平均履约时间 | 54.60 min | 61.16 min |
-| 含罚总成本（元） | 22750.08 | 27466.44 |
+| 时间窗满足率 | 79.3%（600单） | 67.5%（600单） |
+| 平均履约时间 | 57.81 min | 62.62 min |
+| 含罚总成本（元） | 29180.32 | 32050.94 |
 
 （完整五档结果见 `results/` 下 `*_v5_full_*.csv` 与论文表6-4~6-8；`*_v4_*` 为投影修正前的历史版本，保留供追溯。）
 
