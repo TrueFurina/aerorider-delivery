@@ -50,11 +50,11 @@ python code/solve_full_v5.py 600 cdc 1.0 2.0 data/orders_expanded/fz_orders_reco
 python code/solve_full_v5.py 600 pure 1.0 2.0 data/orders_expanded/fz_orders_recollect_600.csv sim 7 50
 ```
 
-命令行参数：`N`（订单数）、模式（`pure`=纯骑手，缺省=混合）、`TW_SCALE`（时间窗缩放，默认1.0）、`PENALTY`（延误惩罚 元/min，默认2.0）、订单CSV路径、`sim`（仿真模式）、`seed`（默认7）、`FIX_W`（默认50）、第9参数（消融开关，默认空=完整版）。
+命令行参数：`N`（订单数）、模式（`pure`=纯骑手，缺省=混合）、`TW_SCALE`（时间窗缩放，默认1.0）、`PENALTY`（延误惩罚 元/min，默认2.0）、订单CSV路径、`sim`（仿真模式）、`seed`（默认7）、`FIX_W`（ALNS 目标中路线数等效里程权重，实验取值50）、第9参数（消融开关，默认空=完整版）。
 
 输出写入 `results/`，命名 `CD-C2_v5_full_{N}单.csv`（混合）与 `纯骑手_v5_full_{N}单.csv`（纯骑手），另含 `routes`（骑手路线明细）、`uav`（无人机架次）、`decision`（逐单模式决策）等文件。
 
-> **版本对应关系**：`results/` 中 `*_v4_*` 为 2026-10 上旬运行（投影系数修正前历史版本，保留供追溯），`*_v5_*` 为 **2026-10-15 重新采集版**（老师指令"重新采集6小时内的600个订单"后的重算结果），**论文表 6-4~6-8 引用 v5**。v5 特点：① 订单数据 `fz_orders_recollect_600.csv` 坐标全部取自福州市真实 POI 母本（`fz_orders_1550.csv`），限定取送点与任一交接点直线距离 ≤4 km 以保障三段式协同可达；② 下单时刻 660~1019 min（11:00~16:59）按 24 个 15 min 桶均匀分布（每桶 25 单）；③ 全量落水验证 0/1200、5×5 邻域 robust 0；④ 订单已脱敏（REC 前缀）。复现 v5 请使用 `code/solve_full_v5.py` 与 `data/orders_expanded/fz_orders_recollect_600.csv`，停机坪数据源 `data/params/fz_handoff_nodes_master_fixed.csv`（9 坪全陆地）。
+> **版本对应关系**：`results/` 当前均为 `*_v5_*`（**2026-10-15 重新采集版**，老师指令"重新采集6小时内的600个订单"后的重算结果，CP-SAT 确定性修复后权威值），**论文表 6-4~6-8 引用 v5**；`*_v4_*` 历史版本已移入项目回收站 `回收站_20261016/release_v4旧结果/`（需要时可索取）。v5 特点：① 订单数据 `fz_orders_recollect_600.csv` 坐标全部取自福州市真实 POI 母本（`fz_orders_1550.csv`），限定取送点与任一交接点直线距离 ≤4 km 以保障三段式协同可达；② 下单时刻 660~1019 min（11:00~16:59）按 24 个 15 min 桶均匀分布（每桶 25 单）；③ 全量落水验证 0/1200、5×5 邻域 robust 0；④ 订单已脱敏（REC 前缀）。复现 v5 请使用 `code/solve_full_v5.py` 与 `data/orders_expanded/fz_orders_recollect_600.csv`，停机坪数据源 `data/params/fz_handoff_nodes_master_fixed.csv`（9 坪全陆地）。
 
 ## 4. OD 距离矩阵说明
 
@@ -65,13 +65,15 @@ python code/solve_full_v5.py 600 pure 1.0 2.0 data/orders_expanded/fz_orders_rec
 
 ## 5. 实验与结果
 
-论文实验在 120/240/360/480/600 五个订单规模上运行，每个规模分别执行混合与纯骑手两种系统，`results/` 已随仓库提供全部 CSV（含消融实验 no_alns / no_ten / 构造式基线）。汇总口径（600 单，v5 重新采集版，SEED=7）：
+论文实验在 120/240/360/480/600 五个订单规模上运行，每个规模分别执行混合与纯骑手两种系统，`results/` 已随仓库提供全部 CSV（含消融实验 no_alns / no_ten / 构造式基线）。汇总口径（600 单，v5 重新采集版，SEED=7，CP-SAT 确定性修复后）：
 
 | 指标 | 混合系统（CD-C） | 纯骑手系统 |
 |---|---|---|
-| 时间窗满足率 | 79.3%（600单） | 67.5%（600单） |
-| 平均履约时间 | 57.81 min | 62.62 min |
-| 含罚总成本（元） | 29180.32 | 32050.94 |
+| 时间窗满足率 | 80.2%（600单） | 67.5%（600单） |
+| 平均履约时间 | 57.73 min | 62.62 min |
+| 含罚总成本（元） | 29189.15 | 32050.94 |
+
+> **可复现性说明（2026-10-15 晚）**：核验发现 `solve_full_v5.py` 中 CP-SAT 求解器默认多线程且未固定随机种子，导致含 TEN 的实验组存在不可复现漂移；已修复为 `num_search_workers=1` + `random_seed=SEED`（代码第 411-416 行）并双重验证（cdc 600/cdc 120 逐 key 一致）后重算。上表及 `results/` 下 `*_v5_*` 全部 CSV 均为修复后**最终权威值**；论文表 6-4~6-8 与正文同步引用该口径。
 
 （完整五档结果见 `results/` 下 `*_v5_full_*.csv` 与论文表6-4~6-8；`*_v4_*` 为投影修正前的历史版本，保留供追溯。）
 
