@@ -208,6 +208,40 @@ def cw_initial(items, start_row, end_row, t0, capacity, row_attr, mode):
                 paths[ri] = cand; del paths[rj]
     return [[items[i] for i in p] for p in paths]
 
+def _resolve_alpha(default: float = 10.0) -> float:
+    """ALNS 目标中「超窗每分钟」的权重。
+
+    ⚠️ 口径对齐（2026-11-01 审计发现）：本函数原默认 10.0，而**最终计分**
+    用的 `PENALTY`（默认 2.0 元/min，见 `late_penalty = Σ (t-due) * PENALTY`）。
+    优化目标与评价函数不一致，后果在实测结果里可见：
+
+        120 单：完整版运营成本 6178.30 < no_alns 6182.86（ALNS 确实降了成本），
+                但满足率 54.2% < 62.5%，惩罚 979.00 > 912.61，
+                含罚总成本 7157.30 > 7095.47 —— **ALNS 反而更贵**。
+        240 单同样（13533.20 vs 13525.04）。
+        360 单起才转正，600 单时 ALNS 领先 1077.55 元。
+
+    即：小规模下 ALNS 用「超窗=10 元」的标准主动牺牲了过多准时性，
+    而计分只按 2 元/分钟扣钱，于是做了亏本买卖。
+
+    处理方式（**不改历史结果**）：默认行为保持 10.0 不变，论文已引用的
+    `results/*_v5_*` 全部对标该口径，改动会让既有数字无法复现。想要口径对齐，
+    显式设置环境变量 `MARL_ALNS_ALPHA=2`（或任意值）——这条路径下的结果才是
+    「优化目标 == 评价指标」，可用来验证 alpha 错位的实际影响。
+    """
+    import os
+    raw = os.environ.get("MARL_ALNS_ALPHA", "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        raise SystemExit(f"MARL_ALNS_ALPHA 不是数字: {raw!r}")
+    if v <= 0:
+        raise SystemExit(f"MARL_ALNS_ALPHA 必须为正数，收到 {v}")
+    return v
+
+
 def _insert_cost(route, it, items, start_row, end_row, t0, mode, uav_arr, alpha, fix_w):
     """把 it 插入 route 各位置的最小增量代价（超窗罚*alpha + 里程 + 新开路线固定成本）"""
     best = None
@@ -225,9 +259,15 @@ def _insert_cost(route, it, items, start_row, end_row, t0, mode, uav_arr, alpha,
     return best
 
 def alns_assign(items, start_row, end_row, t0, capacity, row_attr, mode,
-                iter_max=500, alpha=10.0, uav_arr=None, seed=7, fix_w=250.0):
+                iter_max=500, alpha=None, uav_arr=None, seed=7, fix_w=250.0):
     """ALNS 骑手分配。返回路线列表 [[item,...], ...] 与总里程。
-    目标 = alpha*总超窗 + 总里程 + fix_w*路线数（fix_w 为骑手固定成本等效里程）。"""
+    目标 = alpha*总超窗 + 总里程 + fix_w*路线数（fix_w 为骑手固定成本等效里程）。
+
+    alpha 默认取 `_resolve_alpha()`（默认 10.0，可用 MARL_ALNS_ALPHA 覆盖），
+    详见该函数的 docstring：优化口径与最终 PENALTY 计分口径存在差异。
+    """
+    if alpha is None:
+        alpha = _resolve_alpha()
     if not items: return [], 0.0
     if ABL in ('no_alns', 'none'):
         r = cw_initial(items, start_row, end_row, t0, capacity, row_attr, mode)

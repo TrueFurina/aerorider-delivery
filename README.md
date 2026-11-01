@@ -41,6 +41,11 @@
 ```bash
 pip install -r requirements.txt
 
+# ⓪ 前置：OD 距离矩阵不在仓库里（约 3.5 GB，超 GitHub 单文件限制，见 §4）
+#    data/matrices/OD道路距离_米.npy  —— 必须先用 build_road_matrices.py 重建，
+#    或向作者索取 Release 附件。**缺它则 ②③ 都跑不起来**（首行即 FileNotFoundError）。
+#    只想核对论文数字而不重跑：直接看 results/ 下的 CSV（已随仓库提供全部 100 个）。
+
 # ① 重新采集订单已随仓库提供（data/orders_expanded/fz_orders_recollect_600.csv，600 单，可直接使用）
 
 # ② 混合系统（无人机协同）主实验（v5，含消融开关第 9 参数：no_alns / no_ten / none）
@@ -48,6 +53,11 @@ python code/solve_full_v5.py 600 cdc 1.0 2.0 data/orders_expanded/fz_orders_reco
 
 # ③ 纯骑手系统（对照）主实验
 python code/solve_full_v5.py 600 pure 1.0 2.0 data/orders_expanded/fz_orders_recollect_600.csv sim 7 50
+
+# 可选：把 ALNS 的超窗权重对齐到计分口径（默认 10.0，而 PENALTY 默认 2.0）
+#   不设置 = 论文口径，results/ 与论文表 6-4~6-8 可复现；
+#   设为 2 = 优化目标与评价函数一致，用于检验口径错位的实际影响（结果会与论文不同）。
+# MARL_ALNS_ALPHA=2 python code/solve_full_v5.py 600 cdc 1.0 2.0 ... 7 50
 ```
 
 命令行参数：`N`（订单数）、模式（`pure`=纯骑手，缺省=混合）、`TW_SCALE`（时间窗缩放，默认1.0）、`PENALTY`（延误惩罚 元/min，默认2.0）、订单CSV路径、`sim`（仿真模式）、`seed`（默认7）、`FIX_W`（ALNS 目标中路线数等效里程权重，实验取值50）、第9参数（消融开关，默认空=完整版）。
